@@ -17,8 +17,7 @@ REBAR = [
     ("Y16", 16),
     ("Y20", 20),
     ("Y25", 25),
-    ("Y32", 32),
-    ("Y40", 40),
+    ("Y32", 32)    
 ]
 
 BAR_DICT: dict[str, int] = {name: d for name, d in REBAR}
