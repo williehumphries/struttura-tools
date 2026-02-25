@@ -337,8 +337,8 @@ class StructCalcApp(App):
                 )
             self._recalculate()
         elif event.select.id == "strand-select":
-            if event.value is not Select.BLANK:
-                self._update_pt_display(int(event.value))
+            if isinstance(event.value, int):
+                self._update_pt_display(event.value)
 
     def on_input_changed(self, _: Input.Changed) -> None:
         self._recalculate()
