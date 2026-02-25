@@ -27,26 +27,48 @@ BAR_DICT: dict[str, int] = {name: d for name, d in REBAR}
 DEFAULT_BAR = "Y12"
 DEFAULT_ROW = next(i for i, (n, _) in enumerate(REBAR) if n == DEFAULT_BAR)
 
-# ── OVM post-tensioning data ────────────────────────────────────────────────
+# ── Data loading ───────────────────────────────────────────────────────────
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def _fmt(val: str, unit: str = "mm") -> str:
+    """Format a CSV value with unit; show '—' for zero/empty."""
+    return f"{val} {unit}" if val and val != "0" else "—"
+
 
 OVM_ANCHORS: dict[str, dict] = {}
 OVM_SPACING: dict[str, dict] = {}
 
 try:
-    with open(os.path.join(_DATA_DIR, "ovm_anchors.csv"), newline="") as _f:
+    with open(os.path.join(_DATA_DIR, "ovm_anchors.csv"), newline="", encoding="utf-8-sig") as _f:
         for _row in csv.DictReader(_f):
             OVM_ANCHORS[_row["Anchor_Name"]] = _row
 except FileNotFoundError:
     pass
 
 try:
-    with open(os.path.join(_DATA_DIR, "ovm_anchor_spacing.csv"), newline="") as _f:
+    with open(os.path.join(_DATA_DIR, "ovm_anchor_spacing.csv"), newline="", encoding="utf-8-sig") as _f:
         for _row in csv.DictReader(_f):
             OVM_SPACING[_row["Anchor_Name"]] = _row
 except FileNotFoundError:
     pass
+
+# ── Macalloy stress bar data ────────────────────────────────────────────────
+
+MACALLOY_BARS: dict[str, dict] = {}
+
+try:
+    with open(os.path.join(_DATA_DIR, "macalloy_bars.csv"), newline="", encoding="utf-8-sig") as _f:
+        for _row in csv.DictReader(_f):
+            MACALLOY_BARS[_row["bar_dia"]] = _row
+except FileNotFoundError:
+    pass
+
+MACALLOY_BAR_DIAS    = list(MACALLOY_BARS.keys())
+DEFAULT_MACALLOY_DIA = MACALLOY_BAR_DIAS[0] if MACALLOY_BAR_DIAS else "20"
+
+# ── OVM post-tensioning constants ────────────────────────────────────────────
 
 DEFAULT_STRANDS = 7
 STRAND_ULT_KN   = 279.0   # characteristic breaking load per 15.7 mm strand
@@ -78,8 +100,8 @@ def bar_weight(d: float) -> float:
 class StructCalcApp(App):
     """Structural engineering calculator."""
 
-    TITLE = "Structural Calc"
-    SUB_TITLE = "Structural Engineering Helper"
+    TITLE = "STRUTTURA"
+    SUB_TITLE = "Design aids"
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -174,7 +196,7 @@ class StructCalcApp(App):
         width: 1fr;
     }
 
-    /* ── PT Anchors tab ── */
+    /* ── OVM PT Anchors tab ── */
 
     #pt-body {
         height: 1fr;
@@ -198,7 +220,7 @@ class StructCalcApp(App):
         margin: 0;
     }
 
-    .pt-force-box {
+    .force-box {
         width: auto;
         min-width: 22;
         height: 3;
@@ -239,6 +261,56 @@ class StructCalcApp(App):
     #pt-spacing-figure {
         padding: 1 1 0 1;
         color: $text-muted;
+    }
+
+    /* ── Macalloy Bars tab ── */
+
+    #mac-body {
+        height: 1fr;
+    }
+
+    #mac-selector-row {
+        height: auto;
+        padding: 1 2 0 2;
+        align: left middle;
+    }
+
+    #mac-selector-row Label {
+        width: auto;
+        padding: 1 1 0 0;
+        margin: 0;
+        color: $text-muted;
+    }
+
+    #mac-selector-row Select {
+        width: 28;
+        margin: 0;
+    }
+
+    #mac-content {
+        height: 1fr;
+    }
+
+    #mac-bar-panel {
+        width: 1fr;
+        border: solid $primary;
+        margin: 1 0 1 1;
+        padding: 0 1;
+    }
+
+    #mac-bar-panel DataTable {
+        height: 1fr;
+    }
+
+    #mac-acc-panel {
+        width: 1fr;
+        border: solid $primary;
+        margin: 1 1 1 1;
+        padding: 0 1;
+    }
+
+    #mac-acc-panel DataTable {
+        height: 1fr;
     }
     """
 
@@ -284,7 +356,7 @@ class StructCalcApp(App):
                         yield Static("—", id="spacing-result", classes="result-box empty")
 
             # ── Tab 2: PT Anchors ──────────────────────────────
-            with TabPane("PT Anchors", id="tab-pt"):
+            with TabPane("OVM PT Anchors", id="tab-pt"):
                 with Vertical(id="pt-body"):
 
                     with Horizontal(id="pt-selector-row"):
@@ -294,8 +366,8 @@ class StructCalcApp(App):
                             value=DEFAULT_STRANDS,
                             id="strand-select",
                         )
-                        yield Static("", id="pt-max-force", classes="pt-force-box")
-                        yield Static("", id="pt-75-force",  classes="pt-force-box")
+                        yield Static("", id="pt-max-force", classes="force-box")
+                        yield Static("", id="pt-75-force",  classes="force-box")
 
                     with Horizontal(id="pt-content"):
 
@@ -312,11 +384,40 @@ class StructCalcApp(App):
                             yield spacing_table
                             yield Static(PT_SPACING_FIGURE, id="pt-spacing-figure")
 
+            # ── Tab 3: Macalloy Bars ───────────────────────────
+            with TabPane("Macalloy Bars", id="tab-mac"):
+                with Vertical(id="mac-body"):
+
+                    with Horizontal(id="mac-selector-row"):
+                        yield Label("Bar diameter")
+                        yield Select(
+                            [(f"Ø{d} mm", d) for d in MACALLOY_BAR_DIAS],
+                            value=DEFAULT_MACALLOY_DIA,
+                            id="macalloy-bar-select",
+                        )
+                        yield Static("", id="mac-ult-force", classes="force-box")
+                        yield Static("", id="mac-75-force",  classes="force-box")
+
+                    with Horizontal(id="mac-content"):
+
+                        with Vertical(id="mac-bar-panel"):
+                            yield Static("BAR & NUT", classes="panel-title")
+                            mac_bar_table = DataTable(cursor_type="none", id="mac-bar-table")
+                            mac_bar_table.add_columns("Property", "Value")
+                            yield mac_bar_table
+
+                        with Vertical(id="mac-acc-panel"):
+                            yield Static("COUPLER, END PLATE & SPIRAL", classes="panel-title")
+                            mac_acc_table = DataTable(cursor_type="none", id="mac-acc-table")
+                            mac_acc_table.add_columns("Property", "Value")
+                            yield mac_acc_table
+
         yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#ref-table", DataTable).move_cursor(row=DEFAULT_ROW)
         self._update_pt_display(DEFAULT_STRANDS)
+        self._update_macalloy_display(DEFAULT_MACALLOY_DIA)
 
     # ── Event handlers ─────────────────────────────────────────
 
@@ -339,6 +440,9 @@ class StructCalcApp(App):
         elif event.select.id == "strand-select":
             if isinstance(event.value, int):
                 self._update_pt_display(event.value)
+        elif event.select.id == "macalloy-bar-select":
+            if isinstance(event.value, str):
+                self._update_macalloy_display(event.value)
 
     def on_input_changed(self, _: Input.Changed) -> None:
         self._recalculate()
@@ -390,9 +494,6 @@ class StructCalcApp(App):
         self.query_one("#pt-max-force", Static).update(f"P_ult  {max_force:.0f} kN")
         self.query_one("#pt-75-force",  Static).update(f"P_75%  {max_force * 0.75:.0f} kN")
 
-        def _fmt(val: str, unit: str = "mm") -> str:
-            return f"{val} {unit}" if val and val != "0" else "—"
-
         anchor = OVM_ANCHORS.get(anchor_name)
         if anchor:
             dims_table.add_row("Anchor",         anchor_name)
@@ -412,6 +513,38 @@ class StructCalcApp(App):
                 a_val = spacing[f"{fck}_a"]
                 b_val = spacing[f"{fck}_b"]
                 spacing_table.add_row(f"{fck} MPa", _fmt(a_val), _fmt(b_val))
+
+    # ── Macalloy display ───────────────────────────────────────
+
+    def _update_macalloy_display(self, dia: str) -> None:
+        bar_table = self.query_one("#mac-bar-table", DataTable)
+        acc_table = self.query_one("#mac-acc-table", DataTable)
+        bar_table.clear()
+        acc_table.clear()
+
+        bar = MACALLOY_BARS.get(dia)
+        if not bar:
+            return
+
+        f_load = float(bar["f_load"])
+        self.query_one("#mac-ult-force", Static).update(f"P_ult  {f_load:.0f} kN")
+        self.query_one("#mac-75-force",  Static).update(f"P_75%  {f_load * 0.75:.0f} kN")
+
+        bar_table.add_row("Bar Ø",        _fmt(bar["bar_dia"]))
+        bar_table.add_row("Weight",       f"{bar['kg_per_m']} kg/m")
+        bar_table.add_row("Ult. load",    f"{bar['f_load']} kN")
+        bar_table.add_row("Nut thick.",   _fmt(bar["nut_t"]))
+        bar_table.add_row("Nut A/F",      _fmt(bar["nut_across_flat"]))
+
+        acc_table.add_row("Coupler Ø",      _fmt(bar["coupler_dia"]))
+        acc_table.add_row("Coupler length", _fmt(bar["coupler_len"]))
+        acc_table.add_row("End plate L",    _fmt(bar["end_plate_len"]))
+        acc_table.add_row("End plate W",    _fmt(bar["end_plate_widt"]))
+        acc_table.add_row("End plate t",    _fmt(bar["end_plate_t"]))
+        acc_table.add_row("Spiral Ø",       _fmt(bar["spiral_d"]))
+        acc_table.add_row("Spiral pitch",   _fmt(bar["spiral_pitch"]))
+        acc_table.add_row("Spiral turns",   bar["spiral_turns"])
+        acc_table.add_row("Spiral bar",     bar["spiral_bar"])
 
     # ── Actions ────────────────────────────────────────────────
 
